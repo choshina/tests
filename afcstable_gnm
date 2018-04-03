@@ -1,0 +1,54 @@
+#!/bin/sh
+csv=$1
+matlab -nodesktop -nosplash <<EOF
+clear;
+InitFalsification;
+InitBreach;
+
+fuel_inj_tol=1.0;
+MAF_sensor_tol=1.0;
+AF_sensor_tol=1.0;
+pump_tol=1;
+kappa_tol=1;
+tau_ww_tol=1;
+fault_time=50;
+kp=0.04;
+ki=0.14;
+mdl = 'AbstractFuelControl';
+Br = BreachSimulinkSystem(mdl);
+Br.Sys.tspan =0:.01:30;
+input_gen.type = 'UniStep';
+input_gen.cp = 5;
+Br.SetInputGen(input_gen);
+for cpi = 0:input_gen.cp -1
+        Engine_Speed_sig = strcat('Engine_Speed_u',num2str(cpi));
+        Br.SetParamRanges({Engine_Speed_sig},[0.0 1100.0]);
+        Pedal_Angle_sig = strcat('Pedal_Angle_u',num2str(cpi));
+        Br.SetParamRanges({Pedal_Angle_sig},[0.0 61.1]);
+end
+spec = 'not (ev_[6,26] (alw_[0,4] ((AF[t]-AFref[t]>0.01*14.7) or (AF[t]-AFref[t]<-0.01*14.7))))';
+phi = STL_Formula('phi',spec);
+trials = 10;
+filename = 'AbstractFuelControl_breach_Sstable_5_global_nelder_mead';
+algorithm = 'Breach';
+falsified = [];
+time = [];
+for n = 1:trials
+        falsif_pb = FalsificationProblem(Br,phi);
+        falsif_pb.max_time = 900;
+        falsif_pb.setup_solver('global_nelder_mead');
+        falsif_pb.solve();
+        if falsif_pb.obj_best < 0
+                falsified = [falsified;1];
+        else
+                falsified = [falsified;0];
+        end
+        time = [time;falsif_pb.time_spent];
+end
+spec = {spec;spec;spec;spec;spec;spec;spec;spec;spec;spec};
+filename = {filename;filename;filename;filename;filename;filename;filename;filename;filename;filename};
+result = table(filename, spec, falsified, time);
+writetable(result,'$csv','Delimiter',';');
+quit
+EOF
+
